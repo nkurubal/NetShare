@@ -159,12 +159,13 @@ def split_per_chunk(
 
     split_name = config["split_name"]
     word2vec_vecSize = config["word2vec_vecSize"]
-    file_type = config["dataset_type"]
+    file_type = "netflow"
     encode_IP = config["encode_IP"]
     num_chunks = config["n_chunks"]
 
     # w/o DP: normalize time by per-chunk min/max
     if config["timestamp"] == "interarrival":
+        # CHange this to groupby metadata array.
         gk = df_per_chunk.groupby(
             ["srcip", "dstip", "srcport", "dstport", "proto"])
         flow_start_list = []
@@ -187,7 +188,7 @@ def split_per_chunk(
         raise ValueError(
             "Cross-chunk mechanism enabled, \
                 cross-chunk flow stats not provided!")
-
+    # TODO: change to metadata array from config.
     metadata = ["srcip", "dstip", "srcport", "dstport", "proto"]
     gk = df_per_chunk.groupby(by=metadata)
 
@@ -234,33 +235,33 @@ def split_per_chunk(
                 # flow starts from this chunk
                 print("in multichunk loop" + str(fields["startFromThisChunk"].normalize(1.0)))
                 if flowkeys_chunkidx[str(group_name)][0] == chunk_id:
-                    attr_per_row += fields["startFromThisChunk"].normalize(1.0)
+                    attr_per_row.append(fields["startFromThisChunk"].normalize(1.0))
                     num_flows_startFromThisChunk += 1
 
                     for i in range(num_chunks):
                         if i in flowkeys_chunkidx[str(group_name)]:
-                            attr_per_row += fields["chunk_{}".format(
-                                i)].normalize(1.0)
+                            attr_per_row.append(fields["chunk_{}".format(
+                                i)].normalize(1.0))
                         else:
-                            attr_per_row += fields["chunk_{}".format(
-                                i)].normalize(0.0)
+                            attr_per_row.append(fields["chunk_{}".format(
+                                i)].normalize(0.0))
 
                 # flow does not start from this chunk
                 else:
-                    attr_per_row += fields["startFromThisChunk"].normalize(0.0)
+                    attr_per_row.append(fields["startFromThisChunk"].normalize(0.0))
                     if split_name == "multichunk_dep_v1":
                         for i in range(num_chunks):
-                            attr_per_row += fields["chunk_{}".format(
-                                i)].normalize(0.0)
+                            attr_per_row.append(fields["chunk_{}".format(
+                                i)].normalize(0.0))
 
                     elif split_name == "multichunk_dep_v2":
                         for i in range(num_chunks):
                             if i in flowkeys_chunkidx[str(group_name)]:
-                                attr_per_row += fields["chunk_{}".format(
-                                    i)].normalize(1.0)
+                                attr_per_row.append(fields["chunk_{}".format(
+                                    i)].normalize(1.0))
                             else:
-                                attr_per_row += fields["chunk_{}".format(
-                                    i)].normalize(0.0)
+                                attr_per_row.append( fields["chunk_{}".format(
+                                    i)].normalize(0.0))
 
         data_attribute.append(attr_per_row)
 
@@ -292,8 +293,8 @@ def split_per_chunk(
                 timeseries_per_step += [row["td"], row["pkt"], row["byt"]]
                 for field in ['label', 'type']:
                     if field in df_per_chunk.columns:
-                        timeseries_per_step += fields[field].normalize(
-                            row[field])
+                        timeseries_per_step.append(fields[field].normalize(
+                            row[field]))
             elif file_type == "zeeklog":
 
                 # continuous fields
@@ -303,7 +304,7 @@ def split_per_chunk(
 
                 # discrete fields
                 for field in ["service", "conn_state"]:
-                    timeseries_per_step += fields[field].normalize(row[field])
+                    timeseries_per_step.append( fields[field].normalize(row[field]))
 
             feature_per_row.append(timeseries_per_step)
             data_gen_flag_per_row.append(1.0)
