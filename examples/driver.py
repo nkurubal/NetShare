@@ -7,7 +7,7 @@ if __name__ == '__main__':
     ray.init(address="auto")
 
     # configuration file
-    generator = Generator(config="pcap/config_example_pcap_nodp.json")
+    generator = Generator(config="netflow/config_example_netflow_nodp.json")
 
     # `work_folder` should not exist o/w an overwrite error will be thrown.
     # Please set the `worker_folder` as *absolute path*

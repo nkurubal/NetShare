@@ -144,14 +144,18 @@ def split_per_chunk(
         chunk_id,
         flowkeys_chunkidx=None,
 ):
-    if config["dataset_type"] == "pcap":
-        time_col = "time"
-    elif config["dataset_type"] == "netflow":
-        time_col = "ts"
-    elif config["dataset_type"] == "zeeklog":
-        time_col = "ts"
-    else:
-        raise ValueError("Unknown dataset type")
+    # print("**********************" + config["dataset_type"] + "************************")
+    # if config["dataset_type"] == "pcap":
+    #     time_col = "time"
+    # elif config["dataset_type"] == "netflow":
+    #     time_col = "ts"
+    # elif config["dataset_type"] == "zeeklog":
+    #     time_col = "ts"
+    # # TODO: change this
+    # elif config["dataset_type"] == "null":
+    time_col = config["timestamp"]["column"]
+    # else:
+    #     raise ValueError("Unknown dataset type")
 
     split_name = config["split_name"]
     word2vec_vecSize = config["word2vec_vecSize"]
@@ -223,11 +227,12 @@ def split_per_chunk(
         if config["timestamp"] == "interarrival":
             attr_per_row.append(
                 fields["flow_start"].normalize(df_group.iloc[0][time_col]))
-
+        print("***************"+ str(attr_per_row) + "********************")
         # cross-chunk generation
         if "multichunk_dep" in split_name:
             if str(group_name) in flowkeys_chunkidx:  # sanity check
                 # flow starts from this chunk
+                print("in multichunk loop" + str(fields["startFromThisChunk"].normalize(1.0)))
                 if flowkeys_chunkidx[str(group_name)][0] == chunk_id:
                     attr_per_row += fields["startFromThisChunk"].normalize(1.0)
                     num_flows_startFromThisChunk += 1

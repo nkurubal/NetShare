@@ -315,6 +315,68 @@ class NetsharePrePostProcessor(PrePostProcessor):
         print("Top 10 per-chunk flow length:",
               sorted(per_chunk_flow_len_agg)[-10:])
 
+        '''prepare NetShare training data for each chunk'''
+        objs = []
+        for chunk_id, df_chunk in tqdm(enumerate(df_chunks)):
+            # skip empty df_chunk: corner case
+            if len(df_chunk) == 0:
+                print("Chunk_id {} empty! Skipping ...".format(chunk_id))
+                continue
+
+            print("\nChunk_id:", chunk_id)
+            objs.append(split_per_chunk.remote(
+                config={**copy.deepcopy(self._config),
+                        **copy.deepcopy(self._config)},
+                fields=copy.deepcopy(fields),
+                df_per_chunk=df_chunk.copy(),
+                embed_model=word2vec_model,
+                global_max_flow_len=global_max_flow_len,
+                chunk_id=chunk_id,
+                flowkeys_chunkidx=flowkeys_chunkidx,
+            ))
+
+        objs_output = ray.get(objs)
+        # TODO: distribute writing of numpy to the files
+        for chunk_id, df_chunk in tqdm(enumerate(df_chunks)):
+            data_attribute, data_feature, data_gen_flag, \
+                data_attribute_output, data_feature_output, \
+                fields_per_epoch = objs_output[chunk_id]
+            # TODO: add pre_process multiple configurations
+            data_out_dir = os.path.join(
+                output_folder,
+                f"chunkid-{chunk_id}")
+            os.makedirs(data_out_dir, exist_ok=True)
+
+            df_chunk.to_csv(os.path.join(
+                data_out_dir, "raw.csv"), index=False)
+
+            num_rows = data_attribute.shape[0]
+            os.makedirs(os.path.join(
+                data_out_dir, "data_train_npz"), exist_ok=True)
+            gt_lengths = []
+            for row_id in range(num_rows):
+                gt_lengths.append(sum(data_gen_flag[row_id]))
+                np.savez(os.path.join(
+                    data_out_dir,
+                    "data_train_npz", f"data_train_{row_id}.npz"),
+                    data_feature=data_feature[row_id],
+                    data_attribute=data_attribute[row_id],
+                    data_gen_flag=data_gen_flag[row_id],
+                    global_max_flow_len=[global_max_flow_len],
+                )
+            np.save(os.path.join(data_out_dir, "gt_lengths"), gt_lengths)
+
+            with open(os.path.join(
+                    data_out_dir,
+                    "data_feature_output.pkl"), 'wb') as fout:
+                pickle.dump(data_feature_output, fout)
+            with open(os.path.join(
+                    data_out_dir, "data_attribute_output.pkl"), 'wb') as fout:
+                pickle.dump(data_attribute_output, fout)
+            with open(os.path.join(
+                    data_out_dir, "fields.pkl"), 'wb') as fout:
+                pickle.dump(fields_per_epoch, fout)
+
         return True
 
     def _post_process(self, input_folder, output_folder,
