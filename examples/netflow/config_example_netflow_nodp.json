@@ -4,7 +4,7 @@
         "overwrite": true,
         "dataset_meta_type": "single_event_per_row",
         "dataset_type": null,
-        "n_chunks": 10,
+        "n_chunks": 2,
         "dp": false
     },
     "default": "netflow.json",

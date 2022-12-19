@@ -180,7 +180,7 @@ def split_per_chunk(
             min(interarrival_within_flow_list))
         fields["interarrival_within_flow"].max_x = float(
             max(interarrival_within_flow_list))
-    elif config["timestamp"] == "raw":
+    elif config["timestamp"]["encoding"] == "raw":
         fields["ts"].min_x = float(df_per_chunk[time_col].min())
         fields["ts"].max_x = float(df_per_chunk[time_col].max())
 
@@ -271,11 +271,11 @@ def split_per_chunk(
             timeseries_per_step = []
 
             # timestamp: raw/interarrival
-            if config["timestamp"] == "interarrival":
+            if config["timestamp"]["encoding"] == "interarrival":
                 timeseries_per_step.append(
                     fields["interarrival_within_flow"].normalize
                     (interarrival_per_flow_list[row_index]))
-            elif config["timestamp"] == "raw":
+            elif config["timestamp"]["encoding"] == "raw":
                 timeseries_per_step.append(
                     fields[time_col].normalize(row[time_col]))
 
@@ -331,9 +331,7 @@ def split_per_chunk(
 
     if encode_IP == 'word2vec':
         for flow_key in ["srcip", "dstip"]:
-            for i in range(word2vec_vecSize):
-                data_attribute_output.append(
-                    fields["{}_{}".format(flow_key, i)].getOutputType())
+            data_attribute_output.append(fields[flow_key].getOutputType())
     elif encode_IP == 'bit':
         data_attribute_output += fields["srcip"].getOutputType()
         data_attribute_output += fields["dstip"].getOutputType()
@@ -342,7 +340,7 @@ def split_per_chunk(
             data_attribute_output.append(
                 fields["{}_{}".format(flow_key, i)].getOutputType())
 
-    if config["timestamp"] == "interarrival":
+    if config["timestamp"]["encoding"] == "interarrival":
         data_attribute_output.append(fields["flow_start"].getOutputType())
 
     if "multichunk_dep" in split_name:
@@ -352,9 +350,9 @@ def split_per_chunk(
             data_attribute_output.append(
                 fields["chunk_{}".format(i)].getOutputType())
 
-    if config["timestamp"] == "interarrival":
+    if config["timestamp"]["encoding"] == "interarrival":
         field_list = ["interarrival_within_flow"]
-    elif config["timestamp"] == "raw":
+    elif config["timestamp"]["encoding"] == "raw":
         field_list = [time_col]
 
     if file_type == "pcap":
