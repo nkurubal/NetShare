@@ -144,30 +144,30 @@ def split_per_chunk(
         chunk_id,
         flowkeys_chunkidx=None,
 ):
-    # print("**********************" + config["dataset_type"] + "************************")
-    # if config["dataset_type"] == "pcap":
-    #     time_col = "time"
-    # elif config["dataset_type"] == "netflow":
-    #     time_col = "ts"
-    # elif config["dataset_type"] == "zeeklog":
-    #     time_col = "ts"
-    # # TODO: change this
-    # elif config["dataset_type"] == "null":
-    time_col = "ts"
-    # else:
-    #     raise ValueError("Unknown dataset type")
 
+    time_col = config["timestamp"]["column"]
     split_name = config["split_name"]
     word2vec_vecSize = config["word2vec_vecSize"]
     file_type = "netflow"
     encode_IP = config["encode_IP"]
     num_chunks = config["n_chunks"]
 
+    # extract metadata columns
+    metadata_cols = [m.column for m in config["metadata"]]
+
+    # extract word2vec colums in metadata
+    word2vec_cols = \
+            [m.column for m in config["metadata"]
+                if "word2vec" in getattr(m, 'encoding', '')]+ \
+            [t.column for t in config["timeseries"]
+                if "word2vec" in getattr(t, 'encoding', '')]
+
+    timeseries_cols = [t.column for t in config["timeseries"]]
+    print("timeseries columns: ", timeseries_cols)
+
     # w/o DP: normalize time by per-chunk min/max
     if config["timestamp"]["encoding"] == "interarrival":
-        # CHange this to groupby metadata array.
-        gk = df_per_chunk.groupby(
-            ["srcip", "dstip", "srcport", "dstport", "proto"])
+        gk = df_per_chunk.groupby(metadata_cols)
         flow_start_list = []
         interarrival_within_flow_list = []
         for group_name, df_group in gk:
@@ -181,16 +181,15 @@ def split_per_chunk(
         fields["interarrival_within_flow"].max_x = float(
             max(interarrival_within_flow_list))
     elif config["timestamp"]["encoding"] == "raw":
-        fields["ts"].min_x = float(df_per_chunk[time_col].min())
-        fields["ts"].max_x = float(df_per_chunk[time_col].max())
+        fields[time_col].min_x = float(df_per_chunk[time_col].min())
+        fields[time_col].max_x = float(df_per_chunk[time_col].max())
 
     if "multichunk_dep" in split_name and flowkeys_chunkidx is None:
         raise ValueError(
             "Cross-chunk mechanism enabled, \
                 cross-chunk flow stats not provided!")
     # TODO: change to metadata array from config.
-    metadata = ["srcip", "dstip", "srcport", "dstport", "proto"]
-    gk = df_per_chunk.groupby(by=metadata)
+    gk = df_per_chunk.groupby(by=metadata_cols)
 
 
     data_attribute = []
@@ -201,29 +200,20 @@ def split_per_chunk(
     for group_name, df_group in tqdm(gk):
         # RESET INDEX TO MAKE IT START FROM ZERO
         df_group = df_group.reset_index(drop=True)
+        df_keys = df_group.keys()
         attr_per_row = []
         feature_per_row = []
         data_gen_flag_per_row = []
-
+        
         # metadata
-        # word2vec
-        if encode_IP == 'word2vec':
-            attr_per_row += list(get_vector(embed_model,
-                                 str(group_name[0]), norm_option=True))
-            attr_per_row += list(get_vector(embed_model,
-                                 str(group_name[1]), norm_option=True))
-        # bitwise
-        elif encode_IP == 'bit':
-            attr_per_row += fields["srcip"].normalize(group_name[0])
-            attr_per_row += fields["dstip"].normalize(group_name[1])
-
-        attr_per_row += list(get_vector(embed_model,
-                             str(group_name[2]), norm_option=True))
-        attr_per_row += list(get_vector(embed_model,
-                             str(group_name[3]), norm_option=True))
-        attr_per_row += list(get_vector(embed_model,
-                             str(group_name[4]), norm_option=True))
-
+        for i in range(len(group_name)):
+            if df_keys[i] in metadata_cols:
+                if df_keys[i] in word2vec_cols:
+                    attr_per_row += list(get_vector(embed_model, str(group_name[i]), norm_option=True))
+                else:
+                    attr_per_row += fields[df_keys[i]].normalize(group_name[i])
+            
+                
         # TODO: timestamp = raw doesn't have key called flow_start
         if config["timestamp"]["encoding"] == "interarrival":
             attr_per_row.append(
@@ -277,32 +267,11 @@ def split_per_chunk(
                 timeseries_per_step.append(
                     fields[time_col].normalize(row[time_col]))
 
-            if file_type == "pcap":
-                timeseries_per_step.append(row["pkt_len"])
-                # full IP header
-                if config["full_IP_header"]:
-                    for field in ["tos", "id", "flag", "off", "ttl"]:
-                        if isinstance(fields[field], DiscreteField):
-                            timeseries_per_step += \
-                                fields[field].normalize(row[field])
-                        else:
-                            timeseries_per_step.append(row[field])
-            elif file_type == "netflow":
-                timeseries_per_step += [row["td"], row["pkt"], row["byt"]]
-                for field in ['label', 'type']:
-                    if field in df_per_chunk.columns:
-                        timeseries_per_step.append(fields[field].normalize(
-                            row[field]))
-            elif file_type == "zeeklog":
-
-                # continuous fields
-                for field in ["duration", "orig_bytes", "resp_bytes", "missed_bytes",
-                              "orig_pkts", "orig_ip_bytes", "resp_pkts", "resp_ip_bytes"]:
+            for field in timeseries_cols:
+                if isinstance(fields[field], DiscreteField):
+                    timeseries_per_step.append(fields[field].normalize(row[field]))
+                else:
                     timeseries_per_step.append(row[field])
-
-                # discrete fields
-                for field in ["service", "conn_state"]:
-                    timeseries_per_step.append( fields[field].normalize(row[field]))
 
             feature_per_row.append(timeseries_per_step)
             data_gen_flag_per_row.append(1.0)
@@ -327,6 +296,16 @@ def split_per_chunk(
     data_attribute_output = []
     data_feature_output = []
 
+
+    # Identify changes between encode IP and normal word2vec
+    # for flow_key in metadata_cols:
+    #     if flow_key in word2vec_cols:
+    #         for i in range(word2vec_vecSize):
+    #             data_attribute_output.append(fields[flow_key].getOutputType())
+    #     else:
+    #         data_attribute_output.append(fields[flow_key].getOutputType())
+
+    # TODO: generalize this after understanding how to differentiate between IP fileds and word2vec fields.
     if encode_IP == 'word2vec':
         for flow_key in ["srcip", "dstip"]:
             data_attribute_output.append(fields[flow_key].getOutputType())
@@ -352,23 +331,8 @@ def split_per_chunk(
     elif config["timestamp"]["encoding"] == "raw":
         field_list = [time_col]
 
-    if file_type == "pcap":
-        if config["full_IP_header"]:
-            field_list += ["pkt_len", "tos", "id", "flag", "off", "ttl"]
-        else:
-            field_list += ["pkt_len"]
-
-    elif file_type == "netflow":
-        field_list += ["td", "pkt", "byt"]
-        for field in ['label', 'type']:
-            if field in df_per_chunk.columns:
-                field_list.append(field)
-
-    elif file_type == "zeeklog":
-        field_list += ["duration", "orig_bytes", "resp_bytes", "missed_bytes",
-                       "orig_pkts", "orig_ip_bytes", "resp_pkts", "resp_ip_bytes",
-                       "service", "conn_state"]
-
+    field_list += timeseries_cols
+    
     for field in field_list:
         field_output = fields[field].getOutputType()
         if isinstance(field_output, list):
