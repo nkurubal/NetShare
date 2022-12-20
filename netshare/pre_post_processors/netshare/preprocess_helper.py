@@ -153,7 +153,7 @@ def split_per_chunk(
     #     time_col = "ts"
     # # TODO: change this
     # elif config["dataset_type"] == "null":
-    time_col = config["timestamp"]["column"]
+    time_col = "ts"
     # else:
     #     raise ValueError("Unknown dataset type")
 
@@ -164,7 +164,7 @@ def split_per_chunk(
     num_chunks = config["n_chunks"]
 
     # w/o DP: normalize time by per-chunk min/max
-    if config["timestamp"] == "interarrival":
+    if config["timestamp"]["encoding"] == "interarrival":
         # CHange this to groupby metadata array.
         gk = df_per_chunk.groupby(
             ["srcip", "dstip", "srcport", "dstport", "proto"])
@@ -192,6 +192,7 @@ def split_per_chunk(
     metadata = ["srcip", "dstip", "srcport", "dstport", "proto"]
     gk = df_per_chunk.groupby(by=metadata)
 
+
     data_attribute = []
     data_feature = []
     data_gen_flag = []
@@ -200,7 +201,6 @@ def split_per_chunk(
     for group_name, df_group in tqdm(gk):
         # RESET INDEX TO MAKE IT START FROM ZERO
         df_group = df_group.reset_index(drop=True)
-
         attr_per_row = []
         feature_per_row = []
         data_gen_flag_per_row = []
@@ -225,15 +225,13 @@ def split_per_chunk(
                              str(group_name[4]), norm_option=True))
 
         # TODO: timestamp = raw doesn't have key called flow_start
-        if config["timestamp"] == "interarrival":
+        if config["timestamp"]["encoding"] == "interarrival":
             attr_per_row.append(
-                fields["flow_start"].normalize(df_group.iloc[0][time_col]))
-        print("***************"+ str(attr_per_row) + "********************")
+                fields["flow_start"].normalize(np.array(list([df_group.iloc[0][time_col]]))))
         # cross-chunk generation
         if "multichunk_dep" in split_name:
             if str(group_name) in flowkeys_chunkidx:  # sanity check
                 # flow starts from this chunk
-                print("in multichunk loop" + str(fields["startFromThisChunk"].normalize(1.0)))
                 if flowkeys_chunkidx[str(group_name)][0] == chunk_id:
                     attr_per_row.append(fields["startFromThisChunk"].normalize(1.0))
                     num_flows_startFromThisChunk += 1
@@ -273,8 +271,8 @@ def split_per_chunk(
             # timestamp: raw/interarrival
             if config["timestamp"]["encoding"] == "interarrival":
                 timeseries_per_step.append(
-                    fields["interarrival_within_flow"].normalize
-                    (interarrival_per_flow_list[row_index]))
+                    fields["interarrival_within_flow"].normalize(
+                    np.array(list([interarrival_per_flow_list[row_index]]))))
             elif config["timestamp"]["encoding"] == "raw":
                 timeseries_per_step.append(
                     fields[time_col].normalize(row[time_col]))
@@ -337,8 +335,7 @@ def split_per_chunk(
         data_attribute_output += fields["dstip"].getOutputType()
     for flow_key in ["srcport", "dstport", "proto"]:
         for i in range(word2vec_vecSize):
-            data_attribute_output.append(
-                fields["{}_{}".format(flow_key, i)].getOutputType())
+            data_attribute_output.append(fields[flow_key].getOutputType())
 
     if config["timestamp"]["encoding"] == "interarrival":
         data_attribute_output.append(fields["flow_start"].getOutputType())
